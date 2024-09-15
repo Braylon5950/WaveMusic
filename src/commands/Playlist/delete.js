@@ -1,44 +1,62 @@
-const { MessageEmbed } = require('discord.js');
-const db = require('../../schema/playlist');
+const { ApplicationCommandOptionType } = require("discord.js");
 
-module.exports = {
-  name: 'delete',
-  aliases: ['pldelete'],
-  category: 'Playlist',
-  description: 'Delete your saved playlist.',
-  args: false,
-  usage: '<playlist name>',
-  userPrams: [],
-  botPrams: ['EMBED_LINKS'],
-  owner: false,
-  player: false,
-  inVoiceChannel: false,
-  sameVoiceChannel: false,
-  execute: async (message, args, client, prefix) => {
-    const Name = args[0];
-    const data = await db.findOne({ UserId: message.author.id, PlaylistName: Name });
-    if (!data) {
-      return message.reply({
+const Command = require("../../structures/Command.js");
+
+module.exports = class Delete extends Command {
+  constructor(client) {
+    super(client, {
+      name: "delete",
+      description: {
+        content: "Deletes a playlist",
+        examples: ["delete <playlist name>"],
+        usage: "delete <playlist name>",
+      },
+      category: "playlist",
+      aliases: ["delete"],
+      cooldown: 3,
+      args: true,
+      player: {
+        voice: false,
+        dj: false,
+        active: false,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: [],
+      },
+      slashCommand: true,
+      options: [
+        {
+          name: "playlist",
+          description: "The playlist you want to delete",
+          type: ApplicationCommandOptionType.String,
+          required: true,
+        },
+      ],
+    });
+  }
+  async run(client, ctx, args) {
+    const playlist = args.join(" ").replace(/\s/g, "");
+    const playlistExists = await client.db.getPLaylist(ctx.author.id, playlist);
+    if (!playlistExists)
+      return await ctx.sendMessage({
         embeds: [
-          new MessageEmbed()
-            .setColor(client.embedColor)
-            .setDescription(`You don't have a playlist with **${Name}** name`),
+          {
+            description: "That playlist doesn't exist",
+            color: client.color.red,
+          },
         ],
       });
-    }
-    if (data.length == 0) {
-      return message.reply({
-        embeds: [
-          new MessageEmbed()
-            .setColor(client.embedColor)
-            .setDescription(`You don't have a playlist with **${Name}** name`),
-        ],
-      });
-    }
-    await data.delete();
-    const embed = new MessageEmbed()
-      .setColor(client.embedColor)
-      .setDescription(`Successfully deleted ${Name} playlist`);
-    return message.channel.send({ embeds: [embed] });
-  },
+    client.db.deletePlaylist(ctx.author.id, playlist);
+    return await ctx.sendMessage({
+      embeds: [
+        {
+          description: `Deleted playlist **${playlist}**`,
+          color: client.color.main,
+        },
+      ],
+    });
+  }
 };

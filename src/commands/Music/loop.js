@@ -1,47 +1,64 @@
-const { MessageEmbed } = require('discord.js');
+const Command = require("../../structures/Command.js");
 
-module.exports = {
-  name: 'loop',
-  aliases: ['l'],
-  category: 'Music',
-  description: 'Toggle music loop',
-  args: true,
-  usage: '',
-  userPrams: [],
-  botPrams: ['EMBED_LINKS'],
-  owner: false,
-  player: true,
-  inVoiceChannel: true,
-  sameVoiceChannel: true,
-  execute: async (message, args, client, prefix) => {
-    const player = client.manager.players.get(message.guild.id);
-
-    if (!player.current) {
-      let thing = new MessageEmbed().setColor('RED').setDescription('There is no music playing.');
-      return message.reply({ embeds: [thing] });
+module.exports = class Loop extends Command {
+  constructor(client) {
+    super(client, {
+      name: "loop",
+      description: {
+        content: "loop the current song or the queue",
+        examples: ["loop", "loop queue", "loop song"],
+        usage: "loop",
+      },
+      category: "general",
+      aliases: ["loop"],
+      cooldown: 3,
+      args: false,
+      player: {
+        voice: true,
+        dj: false,
+        active: true,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: [],
+      },
+      slashCommand: true,
+      options: [],
+    });
+  }
+  async run(client, ctx) {
+    const embed = client.embed().setColor(client.color.main);
+    const player = client.queue.get(ctx.guild.id);
+    switch (player.loop) {
+      case "off":
+        player.loop = "repeat";
+        return await ctx.sendMessage({
+          embeds: [
+            embed
+              .setDescription(`**Looping the song**`)
+              .setColor(client.color.main),
+          ],
+        });
+      case "repeat":
+        player.loop = "queue";
+        return await ctx.sendMessage({
+          embeds: [
+            embed
+              .setDescription(`**Looping the queue**`)
+              .setColor(client.color.main),
+          ],
+        });
+      case "queue":
+        player.loop = "off";
+        return await ctx.sendMessage({
+          embeds: [
+            embed
+              .setDescription(`**Looping is now off**`)
+              .setColor(client.color.main),
+          ],
+        });
     }
-    const emojiloop = client.emoji.loop;
-
-    if (['q', 'queue'].includes(args[0])) {
-      await player.setLoop('queue');
-      let thing = new MessageEmbed()
-        .setColor(client.embedColor)
-        .setDescription(`${emojiloop} Loop queue is now **enable**`);
-      return message.reply({ embeds: [thing] });
-    } else if (['track', 't'].includes(args[0])) {
-      await player.setLoop('track');
-
-      let thing = new MessageEmbed()
-        .setColor(client.embedColor)
-        .setDescription(`${emojiloop} Loop track is now **enable**`);
-      return message.reply({ embeds: [thing] });
-    } else if (['off', 'c', 'clear'].includes(args[0])) {
-      await player.setLoop('off');
-
-      let thing = new MessageEmbed()
-        .setColor(client.embedColor)
-        .setDescription(`${emojiloop} Loop is now **disabled**`);
-      return message.reply({ embeds: [thing] });
-    }
-  },
+  }
 };

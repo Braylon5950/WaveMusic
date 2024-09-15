@@ -1,107 +1,71 @@
-const { MessageEmbed, MessageButton, MessageActionRow } = require('discord.js');
+const { ApplicationCommandOptionType } = require("discord.js");
 
-module.exports = {
-  name: 'speed',
-  category: 'Filters',
-  aliases: ['sped'],
-  description: 'Set Speed Filter',
-  args: false,
-  usage: '',
-  userPrams: [],
-  botPrams: ['EMBED_LINKS'],
-  owner: false,
-  player: true,
-  inVoiceChannel: true,
-  sameVoiceChannel: true,
-  execute: async (message, args, client, prefix) => {
+const Command = require("../../structures/Command.js");
 
-     const player = client.manager.players.get(message.guild.id);
-    if (!player.current) {
-      let thing = new MessageEmbed().setColor('RED').setDescription('There is no music playing.');
-      return message.reply({ embeds: [thing] });
-    }
-    const emojiequalizer = message.client.emoji.filter;
-    const embed = new MessageEmbed()
-      .setColor(client.embedColor)
-      .setDescription(`Chose The Buttons`);
-
-    const but = new MessageButton()
-      .setCustomId("clear_but")
-      .setLabel("OFF")
-      .setStyle("DANGER");
-    const but2 = new MessageButton()
-      .setCustomId("speed_but")
-      .setLabel("ON")
-      .setStyle("PRIMARY");
-
-    const but_ = new MessageButton()
-      .setCustomId("clear_but_")
-      .setLabel("OFF")
-      .setStyle("DANGER")
-      .setDisabled(true);
-    const but_2 = new MessageButton()
-      .setCustomId("speed_but_")
-      .setLabel("ON")
-      .setStyle("PRIMARY")
-      .setDisabled(true);
-
-    const row1 = new MessageActionRow().addComponents(but, but_2);
-    const row2 = new MessageActionRow().addComponents(but2, but_);
-    const row3 = new MessageActionRow().addComponents(but2, but_);
-    const m = await message.reply({ embeds: [embed], components: [row3] });
-
-    const embed1 = new MessageEmbed().setColor(client.embedColor);
-    const collector = m.createMessageComponentCollector({
-      filter: (f) =>
-        f.user.id === message.author.id
-          ? true
-          : false && f.deferUpdate().catch(() => {}),
-      time: 60000,
-      idle: 60000 / 2,
+module.exports = class Speed extends Command {
+  constructor(client) {
+    super(client, {
+      name: "speed",
+      description: {
+        content: "Sets the speed of the song",
+        examples: ["speed 1.5"],
+        usage: "speed <number>",
+      },
+      category: "filters",
+      aliases: ["speed"],
+      cooldown: 3,
+      args: true,
+      player: {
+        voice: true,
+        dj: true,
+        active: true,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: ["ManageGuild"],
+      },
+      slashCommand: true,
+      options: [
+        {
+          name: "speed",
+          description: "The speed you want to set",
+          type: ApplicationCommandOptionType.Integer,
+          required: true,
+        },
+      ],
     });
-    collector.on("end", async () => {
-      if (!m) return;
-      await m
-        .edit({
-          embeds: [
-            embed1.setDescription(`Time is Out type again ${prefix}speed`),
-          ],
-          components: [
-            new MessageActionRow().addComponents(
-              but2.setDisabled(true),
-              but.setDisabled(true)
-            ),
-          ],
-        })
-        .catch(() => {});
-    });
-    collector.on("collect", async (b) => {
-      if (!b.replied) await b.deferUpdate({ ephemeral: true });
-      if (b.customId === "clear_but") {
-        await player.player.clearFilters();
-        return await b.editReply({
-          embeds: [
-            embed1.setDescription(`${emojiequalizer} Speed Mode is \`OFF\``),
-          ],
-          components: [row2],
-        });
-      } else if (b.customId === "speed_but") {
-        await player.player.setFilters({
-          op: 'filters',
-          guildId: message.guild.id,
-          timescale: {
-            speed: 1.501,
-            pitch: 1.245,
-            rate: 1.921,
+  }
+  async run(client, ctx, args) {
+    const player = client.queue.get(ctx.guild.id);
+    const speed = Number(args[0]);
+    if (isNaN(speed))
+      return await ctx.sendMessage({
+        embeds: [
+          {
+            description: "Please provide a valid number",
+            color: client.color.red,
           },
-        });
-        return await b.editReply({
-          embeds: [
-            embed1.setDescription(`${emojiequalizer} Speed Mode is \`ON\``),
-          ],
-          components: [row1],
-        });
-      }
+        ],
+      });
+    if (speed < 0.5 || speed > 5)
+      return await ctx.sendMessage({
+        embeds: [
+          {
+            description: "Please provide a number between 0.5 and 5",
+            color: client.color.red,
+          },
+        ],
+      });
+    player.player.setTimescale({ speed: speed });
+    return await ctx.sendMessage({
+      embeds: [
+        {
+          description: `Speed has been set to ${speed}`,
+          color: client.color.main,
+        },
+      ],
     });
-  },
+  }
 };

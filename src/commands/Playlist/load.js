@@ -1,85 +1,77 @@
-const { MessageEmbed } = require('discord.js');
-const db = require('../../schema/playlist');
+const { ApplicationCommandOptionType } = require("discord.js");
 
-module.exports = {
-  name: 'load',
-  aliases: ['plload'],
-  category: 'Playlist',
-  description: 'Play the saved Playlist.',
-  args: true,
-  usage: '<playlist name>',
-  userPrams: [],
-  botPrams: ['EMBED_LINKS'],
-  owner: false,
-  player: false,
-  inVoiceChannel: true,
-  sameVoiceChannel: true,
-  execute: async (message, args, client, prefix) => {
-    const Name = args[0];
-    const player = await client.manager.createPlayer({
-      guildId: message.guild.id,
-      voiceId: message.member.voice.channel.id,
-      textId: message.channel.id,
-      deaf: true,
-    });
-    const data = await db.findOne({ UserId: message.author.id, PlaylistName: Name });
+const Command = require("../../structures/Command.js");
 
-    let length = data.PlaylistName;
-    let name = Name;
-
-    if (!data) {
-      return message.reply({
-        embeds: [
-          new MessageEmbed()
-            .setColor(client.embedColor)
-            .setDescription(
-              `Playlist not found. Please enter the correct playlist name\n\nDo ${prefix}list To see your Playlist`,
-            ),
-        ],
-      });
-    }
-
-    if (!player) return;
-    let count = 0;
-    const m = await message.reply({
-      embeds: [
-        new MessageEmbed()
-          .setColor(client.embedColor)
-          .setDescription(`Adding ${length} track(s) from your playlist **${name}** to the queue.`),
+module.exports = class Load extends Command {
+  constructor(client) {
+    super(client, {
+      name: "load",
+      description: {
+        content: "Loads a playlist",
+        examples: ["load <playlist>"],
+        usage: "load <playlist>",
+      },
+      category: "playlist",
+      aliases: [],
+      cooldown: 3,
+      args: true,
+      player: {
+        voice: true,
+        dj: false,
+        active: false,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: [],
+      },
+      slashCommand: true,
+      options: [
+        {
+          name: "playlist",
+          description: "The playlist you want to load",
+          type: ApplicationCommandOptionType.String,
+          required: true,
+        },
       ],
     });
-    for (const track of data.Playlist) {
-      let s = await player.search(track.uri ? track.uri : track.title, message.author);
-      if (s.type === 'PLAYLIST') {
-        await player.addSong(s.tracks[0]);
-        if (!player.current) player.play();
-        ++count;
-      } else if (s.type === 'TRACK') {
-        await player.addSong(s.tracks[0]);
-        if (!player.current) player.play();
-        ++count;
-      } else if (s.type === 'SEARCH') {
-        await player.addSong(s.tracks[0]);
-        if (!player.current) player.play();
-        ++count;
-      }
+  }
+  async run(client, ctx, args) {
+    let player = client.queue.get(ctx.guild.id);
+    const playlist = args.join(" ").replace(/\s/g, "");
+    const playlistData = await client.db.getPLaylist(ctx.author.id, playlist);
+    if (!playlistData)
+      return await ctx.sendMessage({
+        embeds: [
+          {
+            description: "That playlist doesn't exist",
+            color: client.color.red,
+          },
+        ],
+      });
+    for await (const song of JSON.parse(playlistData.songs).map((s) => s)) {
+      const vc = ctx.member;
+      if (!player)
+        player = await client.queue.create(
+          ctx.guild,
+          vc.voice.channel,
+          ctx.channel,
+          client.shoukaku.options.nodeResolver(client.shoukaku.nodes)
+        );
+      const track = player.buildTrack(song, ctx.author);
+      player.queue.push(track);
+      player.isPlaying();
     }
-    if (player && !player.current) player.destroy(message.guild.id);
-    if (count <= 0 && m)
-      return await m.edit({
-        embeds: [
-          new MessageEmbed()
-            .setColor(client.embedColor)
-            .setDescription(`Couldn't add any tracks from your playlist **${name}** to the queue.`),
-        ],
-      });
-    if (m)
-      return await m.edit({
-        embeds: [
-          new MessageEmbed()
-            .setColor(client.embedColor)
-            .setDescription(`Added ${count} track(s) from your playlist **${name}** to the queue.`),
-        ],
-      });
-  },
+    return await ctx.sendMessage({
+      embeds: [
+        {
+          description: `Loaded \`${playlistData.name}\` with \`${
+            JSON.parse(playlistData.songs).length
+          }\` songs`,
+          color: client.color.main,
+        },
+      ],
+    });
+  }
 };

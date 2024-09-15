@@ -1,66 +1,59 @@
-const { MessageEmbed } = require('discord.js');
-const { convertTime } = require('../../utils/convert.js');
-const ms = require('ms');
+const Command = require("../../structures/Command.js");
 
-module.exports = {
-  name: 'seek',
-  aliases: [],
-  category: 'Music',
-  description: 'Seek the currently playing song',
-  args: true,
-  usage: '<10s || 10m || 10h>',
-  userPrams: [],
-  botPrams: ['EMBED_LINKS'],
-  owner: false,
-  player: true,
-  inVoiceChannel: true,
-  sameVoiceChannel: true,
-  execute: async (message, args, client, prefix) => {
-    const player = client.manager.players.get(message.guild.id);
-
-    if (!player.current) {
-      let thing = new MessageEmbed().setColor('RED').setDescription('There is no music playing.');
-      return message.reply({ embeds: [thing] });
-    }
-
-    const time = ms(args[0]);
-    const position = player.player.position;
-    const duration = player.current.length;
-
-    const emojiforward = client.emoji.forward;
-    const emojirewind = client.emoji.rewind;
-
-    const song = player.current;
-
-    if (time <= duration) {
-      if (time > position) {
-        await player.player.seekTo(time);
-        let thing = new MessageEmbed()
-          .setDescription(
-            `${emojiforward} **Forward**\n[${song.title}](${song.uri})\n\`${convertTime(
-              time,
-            )} / ${convertTime(duration)}\``,
-          )
-          .setColor(client.embedColor);
-        return message.reply({ embeds: [thing] });
-      } else {
-        await player.player.seekTo(time);
-        let thing = new MessageEmbed()
-          .setDescription(
-            `${emojirewind} **Rewind**\n[${song.title}](${song.uri})\n\`${convertTime(
-              time,
-            )} / ${convertTime(duration)}\``,
-          )
-          .setColor(client.embedColor);
-        return message.reply({ embeds: [thing] });
-      }
-    } else {
-      let thing = new MessageEmbed()
-        .setColor('RED')
-        .setDescription(
-          `Seek duration exceeds Song duration.\nSong duration: \`${convertTime(duration)}\``,
-        );
-      return message.reply({ embeds: [thing] });
-    }
-  },
+module.exports = class Seek extends Command {
+  constructor(client) {
+    super(client, {
+      name: "seek",
+      description: {
+        content: "Seeks to a certain time in the song",
+        examples: ["seek 1m, seek 1h 30m"],
+        usage: "seek <time>",
+      },
+      category: "music",
+      aliases: ["se"],
+      cooldown: 3,
+      args: true,
+      player: {
+        voice: true,
+        dj: false,
+        active: true,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: [],
+      },
+      slashCommand: true,
+      options: [
+        {
+          name: "time",
+          description: "The time to seek to",
+          type: 3,
+          required: true,
+        },
+      ],
+    });
+  }
+  async run(client, ctx, args) {
+    const player = client.queue.get(ctx.guild.id);
+    const embed = this.client.embed();
+    const time = client.utils.parseTime(args[0]);
+    if (!time)
+      return await ctx.sendMessage({
+        embeds: [
+          embed
+            .setColor(this.client.color.red)
+            .setDescription("Invalid time format."),
+        ],
+      });
+    player.seek(time);
+    return await ctx.sendMessage({
+      embeds: [
+        embed
+          .setColor(this.client.color.main)
+          .setDescription(`Seeked to ${args[0]}`),
+      ],
+    });
+  }
 };

@@ -1,136 +1,222 @@
-const { MessageEmbed, Permissions, MessageActionRow, MessageButton } = require('discord.js');
-const db = require('../../schema/prefix.js');
-const db2 = require('../../schema/setup');
+const Event = require("../../structures/Event.js");
+const { ChannelType, Collection, PermissionFlagsBits } = require("discord.js");
+const Context = require("../../structures/Context.js");
 
-module.exports = {
-  name: 'messageCreate',
-  run: async (client, message) => {
+module.exports = class MessageCreate extends Event {
+  constructor(client, file) {
+    super(client, file, {
+      name: "messageCreate",
+    });
+  }
+  async run(message) {
     if (message.author.bot) return;
-    if (!message.guild) return;
-    let prefix = client.prefix;
-    const channel = message?.channel;
-    const ress = await db.findOne({ Guild: message.guildId });
-    if (ress && ress.Prefix) prefix = ress.Prefix;
-
-    let datab = client.owner;
-
-    const mentionRegexPrefix = RegExp(`^<@!?${client.user.id}>`);
-    if (message.content.match(mentionRegexPrefix)) {
-      const row = new MessageActionRow().addComponents(
-        new MessageButton().setLabel('Invite').setStyle('LINK').setURL(client.config.links.invite),
-      );
-      const embed = new MessageEmbed().setColor(client.embedColor)
-        .setDescription(`Hey **${message.author.username}**, my prefix for this server is \`${prefix}\` Want more info? then do \`${prefix}\`**help**
-            Stay Safe, Stay Awesome!`);
-      message.channel.send({ embeds: [embed], components: [row] });
-    }
-
-    const prefix1 = message.content.match(mentionRegexPrefix)
-      ? message.content.match(mentionRegexPrefix)[0]
-      : prefix;
-
-    if (!datab.includes(message.author.id)) {
-      if (!message.content.startsWith(prefix1)) return;
-    }
-
-    const args =
-      datab.includes(message.author.id) == false
-        ? message.content.slice(prefix1.length).trim().split(/ +/)
-        : message.content.startsWith(prefix1) == true
-        ? message.content.slice(prefix1.length).trim().split(/ +/)
-        : message.content.trim().split(/ +/);
-
-    const commandName = args.shift().toLowerCase();
-
-    const command =
-      client.commands.get(commandName) ||
-      client.commands.find((cmd) => cmd.aliases && cmd.aliases.includes(commandName));
-
-    if (!command) return;
-    if (!message.guild.me.permissions.has(Permissions.FLAGS.SEND_MESSAGES))
-      return await message.author.dmChannel
-        .send({
-          content: `I don't have **\`SEND_MESSAGES\`** permission in <#${message.channelId}> to execute this **\`${command.name}\`** command.`,
-        })
-        .catch(() => {});
-
-    if (!message.guild.me.permissions.has(Permissions.FLAGS.VIEW_CHANNEL)) return;
-
-    if (!message.guild.me.permissions.has(Permissions.FLAGS.EMBED_LINKS))
-      return await message.channel
-        .send({
-          content: `I don't have **\`EMBED_LINKS\`** permission to execute this **\`${command.name}\`** command.`,
-        })
-        .catch(() => {});
-
-    const embed = new MessageEmbed().setColor('RED');
-
-    // args: true,
-    if (command.args && !args.length) {
-      let reply = `You didn't provide any arguments, ${message.author}!`;
-
-      // usage: '',
-      if (command.usage) {
-        reply += `\nUsage: \`${prefix}${command.name} ${command.usage}\``;
+    const setup = this.client.db.getSetup(message.guildId);
+    if (setup && setup.textId) {
+      if (setup.textId === message.channelId) {
+        return this.client.emit("setupSystem", message);
       }
-
-      embed.setDescription(reply);
-      return message.channel.send({ embeds: [embed] });
     }
-
-    if (command.userPrams && !message.member.permissions.has(command.userPrams)) {
-      embed.setDescription(
-        `You need to this \`${command.userPrams.join(', ')}\` permission use this command.`,
-      );
-      return message.channel.send({ embeds: [embed] });
+    let prefix = this.client.db.getPrefix(message.guildId);
+    const mention = new RegExp(`^<@!?${this.client.user.id}>( |)$`);
+    if (message.content.match(mention)) {
+      await message.reply({
+        content: `Hey, my prefix for this server is \`${prefix.prefix}\` Want more info? then do \`${prefix.prefix}help\`\nStay Safe, Stay Awesome!`,
+      });
+      return;
     }
-    if (command.botPrams && !message.guild.me.permissions.has(command.botPrams)) {
-      embed.setDescription(
-        `I need this \`${command.userPrams.join(', ')}\` permission use this command.`,
-      );
-      return message.channel.send({ embeds: [embed] });
-    }
+    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const prefixRegex = new RegExp(
+      `^(<@!?${this.client.user.id}>|${escapeRegex(prefix.prefix)})\\s*`
+    );
+    if (!prefixRegex.test(message.content)) return;
+    const [matchedPrefix] = message.content.match(prefixRegex);
+    const args = message.content
+      .slice(matchedPrefix.length)
+      .trim()
+      .split(/ +/g);
+    const cmd = args.shift().toLowerCase();
+    const command =
+      this.client.commands.get(cmd) ||
+      this.client.commands.get(this.client.aliases.get(cmd));
+    if (!command) return;
+    const ctx = new Context(message, args);
+    ctx.setArgs(args);
+    let dm = message.author.dmChannel;
+    if (typeof dm === "undefined") dm = await message.author.createDM();
     if (
-      !channel.permissionsFor(message.guild.me)?.has(Permissions.FLAGS.EMBED_LINKS) &&
-      client.user.id !== userId
-    ) {
-      return channel.send({ content: `Error: I need \`EMBED_LINKS\` permission to work.` });
-    }
-    if (command.owner) {
-      if (client.owner) {
-        const devs = client.owner.find((x) => x === message.author.id);
-        if (!devs)
-          return message.channel.send({
-            embeds: [embed.setDescription('Only <@959276033683628122> can use this command!')],
+      !message.inGuild() ||
+      !message.channel
+        .permissionsFor(message.guild.members.me)
+        .has(PermissionFlagsBits.ViewChannel)
+    )
+      return;
+    if (
+      !message.guild.members.me.permissions.has(
+        PermissionFlagsBits.SendMessages
+      )
+    )
+      return await message.author
+        .send({
+          content: `I don't have **\`SendMessage\`** permission in \`${message.guild.name}\`\nchannel: <#${message.channelId}>`,
+        })
+        .catch(() => {});
+    if (
+      !message.guild.members.me.permissions.has(PermissionFlagsBits.EmbedLinks)
+    )
+      return await message.reply({
+        content: "I don't have **`EmbedLinks`** permission.",
+      });
+    if (command.permissions) {
+      if (command.permissions.client) {
+        if (
+          !message.guild.members.me.permissions.has(command.permissions.client)
+        )
+          return await message.reply({
+            content: "I don't have enough permissions to execute this command.",
           });
       }
-    }
-    const player = client.manager.players.get(message.guild.id);
-    if (command.player && !player) {
-      embed.setDescription('There is no player for this guild.');
-      return message.channel.send({ embeds: [embed] });
-    }
-    if (command.inVoiceChannel && !message.member.voice.channelId) {
-      embed.setDescription('You must be in a voice channel!');
-      return message.channel.send({ embeds: [embed] });
-    }
-    if (command.sameVoiceChannel) {
-      if (message.guild.me.voice.channel) {
-        if (message.guild.me.voice.channelId !== message.member.voice.channelId) {
-          embed.setDescription(`You must be in the same channel as ${message.client.user}!`);
-          return message.channel.send({ embeds: [embed] });
+      if (command.permissions.user) {
+        if (!message.member.permissions.has(command.permissions.user))
+          return await message.reply({
+            content: "You don't have enough permissions to use this command.",
+          });
+      }
+      if (command.permissions.dev) {
+        if (this.client.config.owners) {
+          const findDev = this.client.config.owners.find(
+            (x) => x === message.author.id
+          );
+          if (!findDev) return;
         }
       }
     }
-
-    try {
-      command.execute(message, args, client, prefix);
-    } catch (error) {
-      console.log(error);
-      embed.setDescription(
-        'There was an error executing that command.\nI have contacted the owner of the bot to fix it immediately.',
-      );
-      return message.channel.send({ embeds: [embed] });
+    if (command.player) {
+      if (command.player.voice) {
+        if (!message.member.voice.channel)
+          return await message.reply({
+            content: `You must be connected to a voice channel to use this \`${command.name}\` command.`,
+          });
+        if (
+          !message.guild.members.me.permissions.has(PermissionFlagsBits.Speak)
+        )
+          return await message.reply({
+            content: `I don't have \`CONNECT\` permissions to execute this \`${command.name}\` command.`,
+          });
+        if (
+          !message.guild.members.me.permissions.has(PermissionFlagsBits.Speak)
+        )
+          return await message.reply({
+            content: `I don't have \`SPEAK\` permissions to execute this \`${command.name}\` command.`,
+          });
+        if (
+          message.member.voice.channel.type === ChannelType.GuildStageVoice &&
+          !message.guild.members.me.permissions.has(
+            PermissionFlagsBits.RequestToSpeak
+          )
+        )
+          return await message.reply({
+            content: `I don't have \`REQUEST TO SPEAK\` permission to execute this \`${command.name}\` command.`,
+          });
+        if (message.guild.members.me.voice.channel) {
+          if (
+            message.guild.members.me.voice.channelId !==
+            message.member.voice.channelId
+          )
+            return await message.reply({
+              content: `You are not connected to <#${message.guild.members.me.voice.channel.id}> to use this \`${command.name}\` command.`,
+            });
+        }
+      }
+      if (command.player.active) {
+        if (!this.client.queue.get(message.guildId))
+          return await message.reply({
+            content: "Nothing is playing right now.",
+          });
+        if (!this.client.queue.get(message.guildId).queue)
+          return await message.reply({
+            content: "Nothing is playing right now.",
+          });
+        if (!this.client.queue.get(message.guildId).current)
+          return await message.reply({
+            content: "Nothing is playing right now.",
+          });
+      }
+      if (command.player.dj) {
+        const dj = this.client.db.getDj(message.guildId);
+        if (dj && dj.mode) {
+          const djRole = this.client.db.getRoles(message.guildId);
+          if (!djRole)
+            return await message.reply({
+              content: "DJ role is not set.",
+            });
+          const findDJRole = message.member.roles.cache.find((x) =>
+            djRole.map((y) => y.roleId).includes(x.id)
+          );
+          if (!findDJRole) {
+            if (
+              !message.member.permissions.has(PermissionFlagsBits.ManageGuild)
+            ) {
+              return await message
+                .reply({
+                  content: "You need to have the DJ role to use this command.",
+                })
+                .then((msg) => setTimeout(() => msg.delete(), 5000));
+            }
+          }
+        }
+      }
     }
-  },
+    if (command.args) {
+      if (!args.length) {
+        const embed = this.client
+          .embed()
+          .setColor(this.client.color.red)
+          .setTitle("Missing Arguments")
+          .setDescription(
+            `Please provide the required arguments for the \`${
+              command.name
+            }\` command.\n\nExamples:\n${
+              command.description.examples
+                ? command.description.examples.join("\n")
+                : "None"
+            }`
+          )
+          .setFooter({ text: "Syntax: [] = optional, <> = required" });
+        return await message.reply({ embeds: [embed] });
+      }
+    }
+    if (!this.client.cooldown.has(cmd)) {
+      this.client.cooldown.set(cmd, new Collection());
+    }
+    const now = Date.now();
+    const timestamps = this.client.cooldown.get(cmd);
+    const cooldownAmount = Math.floor(command.cooldown || 5) * 1000;
+    if (!timestamps.has(message.author.id)) {
+      timestamps.set(message.author.id, now);
+      setTimeout(() => timestamps.delete(message.author.id), cooldownAmount);
+    } else {
+      const expirationTime = timestamps.get(message.author.id) + cooldownAmount;
+      const timeLeft = (expirationTime - now) / 1000;
+      if (now < expirationTime && timeLeft > 0.9) {
+        return await message.reply({
+          content: `Please wait ${timeLeft.toFixed(
+            1
+          )} more second(s) before reusing the \`${cmd}\` command.`,
+        });
+      }
+      timestamps.set(message.author.id, now);
+      setTimeout(() => timestamps.delete(message.author.id), cooldownAmount);
+    }
+    if (args.includes("@everyone") || args.includes("@here"))
+      return await message.reply({
+        content: "You can't use this command with everyone or here.",
+      });
+    try {
+      return command.run(this.client, ctx, ctx.args);
+    } catch (error) {
+      this.client.logger.error(error);
+      await message.reply({ content: `An error occurred: \`${error}\`` });
+      return;
+    }
+  }
 };

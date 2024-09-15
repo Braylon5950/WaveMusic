@@ -1,28 +1,57 @@
-const { MessageEmbed } = require("discord.js");
+const Command = require("../../structures/Command.js");
 
-module.exports = {
-    name: "leave",
-    aliases: ["dc"],
-    category: "Music",
-    description: "Leave voice channel",
-    args: false,
-    usage: "",
-    userPrams: [],
-    botPrams: ["EMBED_LINKS"],
-    owner: false,
-    player: false,
-    inVoiceChannel: true,
-    sameVoiceChannel: true,
-    execute: async (message, args, client, prefix) => {
-        const player = client.manager.players.get(message.guild.id);
-
-        const emojiLeave = message.client.emoji.leave;
-
-        await player.destroy(message.guild.id);
-
-        let thing = new MessageEmbed()
-            .setColor(message.client.embedColor)
-            .setDescription(`${emojiLeave} **Leaved the voice channel**`);
-        return message.reply({ embeds: [thing] });
-    },
+module.exports = class Leave extends Command {
+  constructor(client) {
+    super(client, {
+      name: "leave",
+      description: {
+        content: "Leaves the voice channel",
+        examples: ["leave"],
+        usage: "leave",
+      },
+      category: "music",
+      aliases: ["dc"],
+      cooldown: 3,
+      args: false,
+      player: {
+        voice: true,
+        dj: true,
+        active: false,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: [],
+      },
+      slashCommand: true,
+      options: [],
+    });
+  }
+  async run(client, ctx) {
+    const player = client.queue.get(ctx.guild.id);
+    const embed = this.client.embed();
+    if (player) {
+      ctx.sendMessage({
+        embeds: [
+          embed
+            .setColor(this.client.color.main)
+            .setDescription(
+              `Left <#${
+                player.node.manager.connections.get(ctx.guild.id).channelId
+              }>`
+            ),
+        ],
+      });
+      player.destroy();
+    } else {
+      ctx.sendMessage({
+        embeds: [
+          embed
+            .setColor(this.client.color.red)
+            .setDescription(`I'm not in a voice channel`),
+        ],
+      });
+    }
+  }
 };

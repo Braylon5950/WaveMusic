@@ -1,71 +1,67 @@
-const { MessageEmbed, Permissions } = require('discord.js');
+const Command = require("../../structures/Command.js");
 
-module.exports = {
-  name: 'join',
-  aliases: ['j'],
-  category: 'Music',
-  description: 'Join voice channel',
-  args: false,
-  usage: '',
-  userPrams: [],
-  botPrams: ['EMBED_LINKS'],
-  owner: false,
-  player: false,
-  inVoiceChannel: true,
-  sameVoiceChannel: false,
-  execute: async (message, args, client, prefix) => {
-    const { channel } = message.member.voice;
-    const player = client.manager.players.get(message.guild.id);
-    if (player) {
-      return await message.channel.send({
+module.exports = class Join extends Command {
+  constructor(client) {
+    super(client, {
+      name: "join",
+      description: {
+        content: "Joins the voice channel",
+        examples: ["join"],
+        usage: "join",
+      },
+      category: "music",
+      aliases: ["j"],
+      cooldown: 3,
+      args: false,
+      player: {
+        voice: true,
+        dj: false,
+        active: false,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: [],
+      },
+      slashCommand: true,
+      options: [],
+    });
+  }
+  async run(client, ctx) {
+    let player = client.queue.get(ctx.guild.id);
+    const embed = this.client.embed();
+    if (!player) {
+      const vc = ctx.member;
+      player = await client.queue.create(
+        ctx.guild,
+        vc.voice.channel,
+        ctx.channel,
+        client.shoukaku.options.nodeResolver(client.shoukaku.nodes)
+      );
+      return await ctx.sendMessage({
         embeds: [
-          new MessageEmbed()
-            .setColor(client.embedColor)
-            .setDescription(`I'm already connected to <#${player.voice}> voice channel!`),
+          embed
+            .setColor(this.client.color.main)
+            .setDescription(
+              `Joined <#${
+                player.node.manager.connections.get(ctx.guild.id).channelId
+              }>`
+            ),
         ],
       });
     } else {
-      if (!message.guild.me.permissions.has([Permissions.FLAGS.CONNECT, Permissions.FLAGS.SPEAK]))
-        return message.channel.send({
-          embeds: [
-            new MessageEmbed()
-              .setColor(client.embedColor)
-              .setDescription(
-                `I don't have enough permissions to execute this command! please give me permission \`CONNECT\` or \`SPEAK\`.`,
-              ),
-          ],
-        });
-
-      if (
-        !message.guild.me
-          .permissionsIn(channel)
-          .has([Permissions.FLAGS.CONNECT, Permissions.FLAGS.SPEAK])
-      )
-        return message.channel.send({
-          embeds: [
-            new MessageEmbed()
-              .setColor(client.embedColor)
-              .setDescription(
-                `I don't have enough permissions connect your vc please give me permission \`CONNECT\` or \`SPEAK\`.`,
-              ),
-          ],
-        });
-
-      const emojiJoin = message.client.emoji.join;
-
-      await client.manager.createPlayer({
-        guildId: message.guild.id,
-        voiceId: message.member.voice.channel.id,
-        textId: message.channel.id,
-        deaf: true,
+      return await ctx.sendMessage({
+        embeds: [
+          embed
+            .setColor(this.client.color.main)
+            .setDescription(
+              `I'm already connected to <#${
+                player.node.manager.connections.get(ctx.guild.id).channelId
+              }>`
+            ),
+        ],
       });
-
-      let thing = new MessageEmbed()
-        .setColor(client.embedColor)
-        .setDescription(
-          `${emojiJoin} **Join the voice channel**\nJoined <#${channel.id}> and bound to <#${message.channel.id}>`,
-        );
-      return message.reply({ embeds: [thing] });
     }
-  },
+  }
 };

@@ -1,91 +1,226 @@
-const { Permissions } = require('discord.js');
+const Event = require("../../structures/Event.js");
+const {
+  ChannelType,
+  Collection,
+  CommandInteraction,
+  InteractionType,
+  PermissionFlagsBits,
+} = require("discord.js");
+const { LoadType } = require("shoukaku");
+const Context = require("../../structures/Context.js");
 
-module.exports = {
-  name: 'interactionCreate',
-  run: async (client, interaction) => {
-    if (interaction.isCommand() || interaction.isContextMenu()) {
-      const SlashCommands = client.slashCommands.get(interaction.commandName);
-      if (!SlashCommands) return;
-
-      if (!interaction.guild.me.permissions.has(Permissions.FLAGS.SEND_MESSAGES))
-        return await interaction.user.dmChannel
+module.exports = class InteractionCreate extends Event {
+  constructor(client, file) {
+    super(client, file, {
+      name: "interactionCreate",
+    });
+  }
+  async run(interaction) {
+    if (
+      interaction instanceof CommandInteraction &&
+      interaction.type === InteractionType.ApplicationCommand
+    ) {
+      const { commandName } = interaction;
+      const command = this.client.commands.get(interaction.commandName);
+      if (!command) return;
+      const ctx = new Context(interaction, interaction.options.data);
+      ctx.setArgs(interaction.options.data);
+      if (
+        !interaction.inGuild() ||
+        !interaction.channel
+          .permissionsFor(interaction.guild.members.me)
+          .has(PermissionFlagsBits.ViewChannel)
+      )
+        return;
+      if (
+        !interaction.guild.members.me.permissions.has(
+          PermissionFlagsBits.SendMessages
+        )
+      ) {
+        return await interaction.member
           .send({
-            content: `I don't have **\`SEND_interactionS\`** permission in <#${interaction.channelId}> to execute this **\`${SlashCommands.name}\`** command.`,
-          })
-          .catch(() => {});
-
-      if (!interaction.guild.me.permissions.has(Permissions.FLAGS.VIEW_CHANNEL)) return;
-
-      if (!interaction.guild.me.permissions.has(Permissions.FLAGS.EMBED_LINKS))
-        return await interaction
-          .reply({
-            content: `I don't have **\`EMBED_LINKS\`** permission to execute this **\`${SlashCommands.name}\`** command.`,
-            ephemeral: true,
-          })
-          .catch(() => {});
-      const player = interaction.client.manager.players.get(interaction.guildId);
-      if (SlashCommands.player && !player) {
-        return await interaction
-          .reply({
-            content: `There is no player for this guild.`,
-            ephemeral: true,
+            content: `I don't have **\`SendMessage\`** permission in \`${interaction.guild.name}\`\nchannel: <#${interaction.channelId}>`,
           })
           .catch(() => {});
       }
-      if (!interaction.member.permissions.has(SlashCommands.userPrams || [])) {
+      if (
+        !interaction.guild.members.me.permissions.has(
+          PermissionFlagsBits.EmbedLinks
+        )
+      )
         return await interaction.reply({
-          content: `I Need Permission to Work this \`${SlashCommands.userPrams.join(', ')}\``,
-          ephemeral: true,
+          content: "I don't have **`EmbedLinks`** permission.",
         });
-      }
-      if (!interaction.guild.me.permissions.has(SlashCommands.botPrams || [])) {
-        return await interaction.reply({
-          content: `You Need this \`${SlashCommands.botPrams.join(
-            ', ',
-          )}\` Permission to Work this command!`,
-          ephemeral: true,
-        });
-      }
-      if (SlashCommands.inVoiceChannel && !interaction.member.voice.channel) {
-        return await interaction
-          .reply({
-            content: `You must be in a voice channel!`,
-            ephemeral: true,
-          })
-          .catch(() => {});
-      }
-
-      if (SlashCommands.sameVoiceChannel) {
-        if (interaction.guild.me.voice.channel) {
-          if (interaction.guild.me.voice.channelId !== interaction.member.voice.channelId) {
-            return await interaction
-              .reply({
-                content: `You must be in the same channel as ${interaction.client.user}`,
-                ephemeral: true,
-              })
-              .catch(() => {});
+      if (command.permissions) {
+        if (command.permissions.client) {
+          if (
+            !interaction.guild.members.me.permissions.has(
+              command.permissions.client
+            )
+          )
+            return await interaction.reply({
+              content:
+                "I don't have enough permissions to execute this command.",
+            });
+        }
+        if (command.permissions.user) {
+          if (!interaction.member.permissions.has(command.permissions.user)) {
+            await interaction.reply({
+              content: "You don't have enough permissions to use this command.",
+              ephemeral: true,
+            });
+            return;
+          }
+        }
+        if (command.permissions.dev) {
+          if (this.client.config.owners) {
+            const findDev = this.client.config.owners.find(
+              (x) => x === interaction.user.id
+            );
+            if (!findDev) return;
           }
         }
       }
-      try {
-        await SlashCommands.run(client, interaction);
-      } catch (error) {
-        if (interaction.replied) {
-          await interaction
-            .editReply({
-              content: `An unexcepted error occured.`,
-            })
-            .catch(() => {});
-        } else {
-          await interaction
-            .followUp({
-              ephemeral: true,
-              content: `An unexcepted error occured.`,
-            })
-            .catch(() => {});
+      if (command.player) {
+        if (command.player.voice) {
+          if (!interaction.member.voice.channel)
+            return await interaction.reply({
+              content: `You must be connected to a voice channel to use this \`${command.name}\` command.`,
+            });
+          if (
+            !interaction.guild.members.me.permissions.has(
+              PermissionFlagsBits.Speak
+            )
+          )
+            return await interaction.reply({
+              content: `I don't have \`CONNECT\` permissions to execute this \`${command.name}\` command.`,
+            });
+          if (
+            !interaction.guild.members.me.permissions.has(
+              PermissionFlagsBits.Speak
+            )
+          )
+            return await interaction.reply({
+              content: `I don't have \`SPEAK\` permissions to execute this \`${command.name}\` command.`,
+            });
+          if (
+            interaction.member.voice.channel.type ===
+              ChannelType.GuildStageVoice &&
+            !interaction.guild.members.me.permissions.has(
+              PermissionFlagsBits.RequestToSpeak
+            )
+          )
+            return await interaction.reply({
+              content: `I don't have \`REQUEST TO SPEAK\` permission to execute this \`${command.name}\` command.`,
+            });
+          if (interaction.guild.members.me.voice.channel) {
+            if (
+              interaction.guild.members.me.voice.channelId !==
+              interaction.member.voice.channelId
+            )
+              return await interaction.reply({
+                content: `You are not connected to <#${interaction.guild.members.me.voice.channel.id}> to use this \`${command.name}\` command.`,
+              });
+          }
         }
-        console.error(error);
+        if (command.player.active) {
+          if (!this.client.queue.get(interaction.guildId))
+            return await interaction.reply({
+              content: "Nothing is playing right now.",
+            });
+          if (!this.client.queue.get(interaction.guildId).queue)
+            return await interaction.reply({
+              content: "Nothing is playing right now.",
+            });
+          if (!this.client.queue.get(interaction.guildId).current)
+            return await interaction.reply({
+              content: "Nothing is playing right now.",
+            });
+        }
+        if (command.player.dj) {
+          const dj = this.client.db.getDj(interaction.guildId);
+          if (dj && dj.mode) {
+            const djRole = this.client.db.getRoles(interaction.guildId);
+            if (!djRole)
+              return await interaction.reply({
+                content: "DJ role is not set.",
+              });
+            const findDJRole = interaction.member.roles.cache.find((x) =>
+              djRole.map((y) => y.roleId).includes(x.id)
+            );
+            if (!findDJRole) {
+              if (
+                !interaction.member.permissions.has(
+                  PermissionFlagsBits.ManageGuild
+                )
+              ) {
+                return await interaction.reply({
+                  content: "You need to have the DJ role to use this command.",
+                  ephemeral: true,
+                });
+              }
+            }
+          }
+        }
+      }
+      if (!this.client.cooldown.has(commandName)) {
+        this.client.cooldown.set(commandName, new Collection());
+      }
+      const now = Date.now();
+      const timestamps = this.client.cooldown.get(commandName);
+      const cooldownAmount = Math.floor(command.cooldown || 5) * 1000;
+      if (!timestamps.has(interaction.user.id)) {
+        timestamps.set(interaction.user.id, now);
+        setTimeout(
+          () => timestamps.delete(interaction.user.id),
+          cooldownAmount
+        );
+      } else {
+        const expirationTime =
+          timestamps.get(interaction.user.id) + cooldownAmount;
+        const timeLeft = (expirationTime - now) / 1000;
+        if (now < expirationTime && timeLeft > 0.9) {
+          return await interaction.reply({
+            content: `Please wait ${timeLeft.toFixed(
+              1
+            )} more second(s) before reusing the \`${commandName}\` command.`,
+          });
+        }
+        timestamps.set(interaction.user.id, now);
+        setTimeout(
+          () => timestamps.delete(interaction.user.id),
+          cooldownAmount
+        );
+      }
+
+      try {
+        await command.run(this.client, ctx, ctx.args);
+      } catch (error) {
+        this.client.logger.error(error);
+        await interaction.reply({ content: `An error occurred: \`${error}\`` });
+      }
+    } else if (
+      interaction.type == InteractionType.ApplicationCommandAutocomplete
+    ) {
+      if (interaction.commandName == "play") {
+        const song = interaction.options.getString("song");
+        const res = await this.client.queue.search(song);
+        let songs = [];
+        switch (res.loadType) {
+          case LoadType.SEARCH:
+            if (!res.data.length) return;
+            res.data.slice(0, 10).forEach((x) => {
+              songs.push({
+                name: x.info.title,
+                value: x.info.uri,
+              });
+            });
+            break;
+          default:
+            break;
+        }
+        return await interaction.respond(songs).catch(() => {});
       }
     }
-  },
+  }
 };

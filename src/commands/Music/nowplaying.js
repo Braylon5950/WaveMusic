@@ -1,67 +1,53 @@
-const { MessageEmbed } = require('discord.js');
-const { convertTime } = require('../../utils/convert.js');
-const { progressbar } = require('../../utils/progressbar.js');
+const Command = require("../../structures/Command.js");
 
-module.exports = {
-  name: 'nowplaying',
-  aliases: ['np'],
-  category: 'Music',
-  description: 'Show now playing song',
-  args: false,
-  usage: '',
-  userPrams: [],
-  botPrams: ['EMBED_LINKS'],
-  owner: false,
-  player: true,
-  inVoiceChannel: false,
-  sameVoiceChannel: false,
-  execute: async (message, args, client, prefix) => {
-    const player = client.manager.players.get(message.guild.id);
-    const song = player.current;
-    if (!player.current) {
-      let thing = new MessageEmbed().setColor('RED').setDescription('There is no music playing.');
-      return message.channel.send(thing);
-    }
-
-    const emojimusic = client.emoji.music;
-    var total = song.length;
-    var current = player.player.position;
-
-    let embed = new MessageEmbed()
-      .addField(`${emojimusic} **Now Playing**`, `[${song.title}](${song.uri})`)
-      .addFields([
-        {
-          name: 'Duration',
-          value: `\`[ ${convertTime(total)} ]\``,
-          inline: true,
-        },
-        {
-          name: 'Author',
-          value: `${player.current.author}`,
-          inline: true,
-        },
-        {
-          name: 'Requested by',
-          value: `[ ${song.requester} ]`,
-          inline: true,
-        },
-        {
-          name: '**Progress Bar**',
-          value: `**[ ${progressbar(player)}** ] \n\`${convertTime(current)}  ${convertTime(
-            total,
-          )}\``,
-          inline: true,
-        },
-      ])
-
-      .setThumbnail(
-        `${
-          player.current.thumbnail
-            ? player.current.thumbnail
-            : `https://img.youtube.com/vi/${player.current.identifier}/hqdefault.jpg`
-        }`,
+module.exports = class Nowplaying extends Command {
+  constructor(client) {
+    super(client, {
+      name: "nowplaying",
+      description: {
+        content: "Shows the currently playing song",
+        examples: ["nowplaying"],
+        usage: "nowplaying",
+      },
+      category: "music",
+      aliases: ["np"],
+      cooldown: 3,
+      args: false,
+      player: {
+        voice: true,
+        dj: false,
+        active: true,
+        djPerm: null,
+      },
+      permissions: {
+        dev: false,
+        client: ["SendMessages", "ViewChannel", "EmbedLinks"],
+        user: [],
+      },
+      slashCommand: true,
+      options: [],
+    });
+  }
+  async run(client, ctx) {
+    const player = client.queue.get(ctx.guild.id);
+    const track = player.current;
+    const position = player.player.position;
+    const duration = track.info.length;
+    const bar = client.utils.progressBar(position, duration, 20);
+    const embed1 = this.client
+      .embed()
+      .setColor(this.client.color.main)
+      .setAuthor({ name: "Now Playing", iconURL: ctx.guild.iconURL({}) })
+      .setThumbnail(track.info.artworkUrl)
+      .setDescription(
+        `[${track.info.title}](${track.info.uri}) - Request By: ${track.info.requester}\n\n\`${bar}\``
       )
-      .setColor(client.embedColor);
-    return message.channel.send({ embeds: [embed] });
-  },
+      .addFields({
+        name: "\u200b",
+        value: `\`${client.utils.formatTime(
+          position
+        )} / ${client.utils.formatTime(duration)}\``,
+      });
+    return await ctx.sendMessage({ embeds: [embed1] });
+  }
 };
